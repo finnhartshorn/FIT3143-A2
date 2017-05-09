@@ -1,16 +1,16 @@
 #include "main.h"
 
-#define MAXITERATIONS 1
+#define MAXITERATIONS 10
 #define XDIM 15
 #define YDIM 4
-#define SENSORTHRESHOLD 0
+#define SENSORTHRESHOLD 20
 
 
 int main(int argc, char **argv) {
 	int rank, size, flag;
 	int root = 60;
 
-	int event_counter = 0;
+	int event_counter;
 
 	MPI_Comm comm;
 	MPI_Request req;
@@ -21,10 +21,7 @@ int main(int argc, char **argv) {
 
 	int iteration = 1;
 
-	int temp[2] = {0,0};
-
 	int result, north, east, south, west;
-	result = north = east = south = west = 0;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -34,9 +31,10 @@ int main(int argc, char **argv) {
 
 	// TODO: Replace with better random number generator
 	srand(time(NULL) + rank);    // Seed random number generation with current time + rank to make sure each process produces different random numbers
-//	srand(rank);    // Seed random number generation with rank to make sure each process produces different random numbers, but is deterministic for testing
 
 	while (iteration <= MAXITERATIONS) {
+		event_counter = 0;
+		result = north = east = south = west = 0;
 		if (rank != root) {
 			MPI_Cart_coords(comm, rank, 2, coord);
 			result = rand() % 100 + 1;			// Produces a random number from 1-100//
@@ -118,41 +116,16 @@ int main(int argc, char **argv) {
 				try_receive_neighbour(NORTH, &south, comm);
 			}
 
-			// TODO Delete this test
-			int adj_events = 0;
-			if (result > SENSORTHRESHOLD) {
-				adj_events++;
+			if (result > SENSORTHRESHOLD && north > SENSORTHRESHOLD && east > SENSORTHRESHOLD && south > SENSORTHRESHOLD && west > SENSORTHRESHOLD) {
+				int temp[2]={rank, result};
+				MPI_Isend(temp, 2, MPI_INT, root, 0, MPI_COMM_WORLD, &req);
 			}
-			if (north > SENSORTHRESHOLD) {
-				adj_events++;
-			}
-			if (east > SENSORTHRESHOLD) {
-				adj_events++;
-			}
-			if (south > SENSORTHRESHOLD) {
-				adj_events++;
-			}
-			if (west > SENSORTHRESHOLD) {
-				adj_events++;
-			}
-			result = adj_events;
-			temp[0] = rank;
-			temp[1] = adj_events;
-//			temp[1] = coord[0];
-			MPI_Isend(temp, 2, MPI_INT, root, 0, MPI_COMM_WORLD, &req);
-
-			// TODO Delete this test and uncomment below
-
-//			if (result > SENSORTHRESHOLD && tuple[2] > SENSORTHRESHOLD && tuple[3] > SENSORTHRESHOLD && tuple[4] > SENSORTHRESHOLD && tuple[5] > SENSORTHRESHOLD) {
-//				MPI_Isend(tuple, 6, MPI_INT, root, 0, MPI_COMM_WORLD, &req);
-//			}
-			// TODO: Don't send entire tuple?
 
 			MPI_Barrier(MPI_COMM_WORLD);
 
 
 		} else if (rank == root) {
-			int results[60];
+			int results[60] = {0};
 			MPI_Barrier(MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
@@ -163,14 +136,11 @@ int main(int argc, char **argv) {
 			MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
 
 			while (flag) {
+				event_counter++;
+				int temp[2];
 				MPI_Recv(temp, 2, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-//				printf("%d: %d,%d,%d,%d, %d\n", tuple[0], result, tuple[2], tuple[3], tuple[4], tuple[5]);fflush(stdout);
 				MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
-				results[temp[0]] = temp[1];
-//				results[tuple[0]] = tuple[3];
-				if (temp[1] == 5) {
-					event_counter++;
-				}
+				results[temp[0]] = 1;
 			}
 			for (int i = 0; i < 60; i++) {
 				if (i % 15 == 0) {
@@ -186,6 +156,7 @@ int main(int argc, char **argv) {
 
 		MPI_Barrier(MPI_COMM_WORLD);
 		iteration++;
+		// TODO: Gather more statistics on each iteration
 	}
 
 		MPI_Finalize();
