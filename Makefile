@@ -2,8 +2,8 @@ CFLAGS = -Wall -Werror
 
 CC = mpicc
 PROGRAM = FIT3143_A2
-DEPS =
-OBJ = main.o
+DEPS = main.h send_receive.h
+OBJ = main.o send_receive.o
 
 %.o: %.c $(DEPS)
 	$(CC) -c $< $(CFLAGS)

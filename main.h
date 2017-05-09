@@ -5,6 +5,13 @@
 #ifndef FIT3143_A2_MAIN_H
 #define FIT3143_A2_MAIN_H
 
-void attempt_receive_neighbour(int, int *);
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <time.h>
+#include <string.h>
+
+#include "mpi.h"
+#include "send_receive.h"
 
 #endif //FIT3143_A2_MAIN_H
