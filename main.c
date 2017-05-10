@@ -1,27 +1,31 @@
 #include "main.h"
 
-#define MAXITERATIONS 10
+#define MAXITERATIONS 10000
 #define XDIM 15
 #define YDIM 4
-#define SENSORTHRESHOLD 20
+#define SENSORTHRESHOLD 50
+#define OUTPUTFILE "output.txt"
+#define VERBOSE 0
 
 
 int main(int argc, char **argv) {
 	int rank, size, flag;
-	int root = 60;
+	int root = XDIM*YDIM;
 
-	int event_counter;
+	int event_counter, message_counter;
+	FILE *fp;
 
 	MPI_Comm comm;
 	MPI_Request req;
-//	MPI_Status status;
 	int period[2] = {0,0};
-	int coord[2];
 	int dim[2] = { YDIM, XDIM };
+	int coord[2], temp[2];
 
 	int iteration = 1;
 
 	int result, north, east, south, west;
+
+	double startTime, endTime;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -29,11 +33,21 @@ int main(int argc, char **argv) {
 
 	MPI_Cart_create(MPI_COMM_WORLD, 2, dim, period, 0, &comm);
 
+	if (rank == root) {
+		fp = fopen(OUTPUTFILE, "w");
+		if (fp == NULL) {
+			printf("Error: Unable to open file\n");
+			return 1;
+		}
+		startTime = MPI_Wtime();
+	}
+
 	// TODO: Replace with better random number generator
 	srand(time(NULL) + rank);    // Seed random number generation with current time + rank to make sure each process produces different random numbers
+	message_counter = event_counter = 0;
 
 	while (iteration <= MAXITERATIONS) {
-		event_counter = 0;
+
 		result = north = east = south = west = 0;
 		if (rank != root) {
 			MPI_Cart_coords(comm, rank, 2, coord);
@@ -41,15 +55,19 @@ int main(int argc, char **argv) {
 			if (result > SENSORTHRESHOLD) {
 				if (coord[0] < YDIM-1) {
 					send_neighbour(SOUTH, &result, comm);
+					message_counter++;
 				}
 				if (coord[0] > 0) {
 					send_neighbour(NORTH, &result, comm);
+					message_counter++;
 				}
 				if (coord[1] < XDIM-1) {
 					send_neighbour(EAST, &result, comm);
+					message_counter++;
 				}
 				if (coord[1] > 0) {
 					send_neighbour(WEST, &result, comm);
+					message_counter++;
 				}
 			}
 
@@ -73,32 +91,40 @@ int main(int argc, char **argv) {
 			if (coord[1] == XDIM-2) {											// Nodes that are next to the right edge
 				if (coord[0] > 0 && north > SENSORTHRESHOLD) { 					// Sends north value east if it is over the threshold
 					send_neighbour(EAST, &north, comm);
+					message_counter++;
 				} else if (coord[0] == 0 && south > SENSORTHRESHOLD) { 			// Uses south value if node has no north neighbour
 					send_neighbour(EAST, &south, comm);
+					message_counter++;
 				}
 			}
 
 			if (coord[1] == 1) {												// Nodes that are next to the left edge
 				if (coord[0] > 0 && north > SENSORTHRESHOLD) { 					// Sends north value west if it is over the threshold
 					send_neighbour(WEST, &north, comm);
+					message_counter++;
 				} else if (coord[0] == 0 && south > SENSORTHRESHOLD) { 			// Sends south value west if it is over the threshold
 					send_neighbour(WEST, &south, comm);
+					message_counter++;
 				}
 			}
 
 			if (coord[0] == YDIM-2) {											// Nodes that are next to the lower edge
 				if ((coord[1] == XDIM-1 || coord[1] == 0) && north > SENSORTHRESHOLD) {			// The two outer nodes send their Northern nodes south
 					send_neighbour(SOUTH, &north, comm);
+					message_counter++;
 				} else if (west > SENSORTHRESHOLD) {                    		// Sends west value south if it is over the threshold
 					send_neighbour(SOUTH, &west, comm);
+					message_counter++;
 				}
 			}
 
 			if (coord[0] == 1) {        										// Nodes that are next to the upper edge
 				if ((coord[1] == XDIM-1 || coord[1] == 0) && south > SENSORTHRESHOLD) {
 					send_neighbour(NORTH, &south, comm);
+					message_counter++;
 				} else if (west > SENSORTHRESHOLD) {
 					send_neighbour(NORTH, &west, comm);            					// Sends west value north if it is over the threshold
+					message_counter++;
 				}
 			}
 			MPI_Barrier(MPI_COMM_WORLD);
@@ -117,6 +143,7 @@ int main(int argc, char **argv) {
 			}
 
 			if (result > SENSORTHRESHOLD && north > SENSORTHRESHOLD && east > SENSORTHRESHOLD && south > SENSORTHRESHOLD && west > SENSORTHRESHOLD) {
+				event_counter++;
 				int temp[2]={rank, result};
 				MPI_Isend(temp, 2, MPI_INT, root, 0, MPI_COMM_WORLD, &req);
 			}
@@ -142,15 +169,18 @@ int main(int argc, char **argv) {
 				MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
 				results[temp[0]] = 1;
 			}
-			for (int i = 0; i < 60; i++) {
-				if (i % 15 == 0) {
-					printf("\n");
+			if (VERBOSE) {
+				for (int i = 0; i < 60; i++) {
+					if (i % 15 == 0) {
+						fprintf(fp, "\n");
+					}
+					fprintf(fp, "%d ", results[i]);
 				}
-				printf("%d ", results[i]);
-			}
-			printf("\n");
+				fprintf(fp, "\n");
 
-			printf("Finished iteration %d. %d events received.\n", iteration, event_counter);fflush(stdout);
+				fprintf(fp, "Finished iteration %d. %d events received.\n", iteration, event_counter);fflush(stdout);
+			}
+
 
 		}
 
@@ -159,6 +189,37 @@ int main(int argc, char **argv) {
 		// TODO: Gather more statistics on each iteration
 	}
 
-		MPI_Finalize();
-		return 0;
+	if (rank == root) {
+		endTime = MPI_Wtime();
+	}
+
+	if (rank != root) {
+		temp[0] = message_counter;
+		temp[1] = event_counter;
+		MPI_Send(temp, 2, MPI_INT, root, 0, MPI_COMM_WORLD);
+	}
+
+	if (rank == root) {
+		int results[2] = {0,0};
+		for (int i = 0; i < XDIM*YDIM; i++) {
+			MPI_Recv(temp, 2, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			results[0] += temp[0];
+			results[1] += temp[1];
+		}
+		// To avoid dividing by zero
+		if (results[1] == 0) {
+			results[1] = 1;
+		}
+		if (iteration == 0) {
+			iteration = 1;
+		}
+
+		fprintf(fp, "Sensor threshold: %d\n", SENSORTHRESHOLD);
+		fprintf(fp, "Total time: %f\nAverage time over %d iterations: %f\n", endTime-startTime, iteration-1, (endTime-startTime)/(iteration-1));
+		fprintf(fp, "Total adjacent messages: %d\nTotal events: %d\nAverage messages per event: %d\n", results[0], results[1], results[0]/results[1]);
+		fprintf(fp, "Messages per iteration: %d", results[0]/(iteration-1));
+	}
+
+	MPI_Finalize();
+	return 0;
 }
