@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include "pcg_variants.h"
+#include "entropy.h"
 
 #include "mpi.h"
 #include "send_receive.h"

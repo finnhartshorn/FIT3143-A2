@@ -34,6 +34,9 @@ int main(int argc, char **argv) {
 	MPI_Cart_create(MPI_COMM_WORLD, 2, dim, period, 0, &comm);
 
 	if (rank == root) {
+		if (VERBOSE) {
+			int results[60] = {0};
+		}
 		fp = fopen(OUTPUTFILE, "w");
 		if (fp == NULL) {
 			printf("Error: Unable to open file\n");
@@ -42,7 +45,15 @@ int main(int argc, char **argv) {
 		startTime = MPI_Wtime();
 	}
 
-	// TODO: Replace with better random number generator
+	// Uses PCG random number generator http://www.pcg-random.org/
+	pcg32_random_t rng;
+	uint64_t seeds[2];
+	entropy_getbytes((void*)seeds, sizeof(seeds));			// Entropy gets some random bytes which are random enough for initialization
+
+	pcg32_srandom_r(&rng, seeds[0]^rank, seeds[1]^rank);	// Xor with rank to get unique seed for each process
+
+
+
 	srand(time(NULL) + rank);    // Seed random number generation with current time + rank to make sure each process produces different random numbers
 	message_counter = event_counter = 0;
 
@@ -51,7 +62,7 @@ int main(int argc, char **argv) {
 		result = north = east = south = west = 0;
 		if (rank != root) {
 			MPI_Cart_coords(comm, rank, 2, coord);
-			result = rand() % 100 + 1;			// Produces a random number from 1-100//
+			result = pcg32_boundedrand_r(&rng, 100) + 1;			// Produces a random number from 1-100
 			if (result > SENSORTHRESHOLD) {
 				if (coord[0] < YDIM-1) {
 					send_neighbour(SOUTH, &result, comm);
@@ -167,7 +178,9 @@ int main(int argc, char **argv) {
 				int temp[2];
 				MPI_Recv(temp, 2, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 				MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
-				results[temp[0]] = 1;
+				if (VERBOSE) {
+					results[temp[0]] = 1;
+				}
 			}
 			if (VERBOSE) {
 				for (int i = 0; i < 60; i++) {
@@ -200,15 +213,15 @@ int main(int argc, char **argv) {
 	}
 
 	if (rank == root) {
-		int results[2] = {0,0};
+		int stats[2] = {0,0};
 		for (int i = 0; i < XDIM*YDIM; i++) {
 			MPI_Recv(temp, 2, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			results[0] += temp[0];
-			results[1] += temp[1];
+			stats[0] += temp[0];
+			stats[1] += temp[1];
 		}
 		// To avoid dividing by zero
-		if (results[1] == 0) {
-			results[1] = 1;
+		if (stats[1] == 0) {
+			stats[1] = 1;
 		}
 		if (iteration == 0) {
 			iteration = 1;
@@ -216,8 +229,8 @@ int main(int argc, char **argv) {
 
 		fprintf(fp, "Sensor threshold: %d\n", SENSORTHRESHOLD);
 		fprintf(fp, "Total time: %f\nAverage time over %d iterations: %f\n", endTime-startTime, iteration-1, (endTime-startTime)/(iteration-1));
-		fprintf(fp, "Total adjacent messages: %d\nTotal events: %d\nAverage messages per event: %d\n", results[0], results[1], results[0]/results[1]);
-		fprintf(fp, "Messages per iteration: %d", results[0]/(iteration-1));
+		fprintf(fp, "Total adjacent messages: %d\nTotal events: %d\nAverage messages per event: %d\n", stats[0], stats[1], stats[0]/stats[1]);
+		fprintf(fp, "Messages per iteration: %d", stats[0]/(iteration-1));
 	}
 
 	MPI_Finalize();
