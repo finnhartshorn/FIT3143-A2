@@ -6,7 +6,6 @@
 #include "main.h"
 
 void try_receive_neighbour(Direction direction, int *buffer, MPI_Comm comm) {
-	MPI_Request req;
 	int source, destination;
 	if (direction == NORTH) {
 		MPI_Cart_shift(comm, 0, -1, &source, &destination);
@@ -21,7 +20,7 @@ void try_receive_neighbour(Direction direction, int *buffer, MPI_Comm comm) {
 	int flag = 0;
 	MPI_Iprobe(destination, 0, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
 	if (flag) {
-		MPI_Irecv(buffer, 1, MPI_INT, destination, 0, MPI_COMM_WORLD, &req);
+		MPI_Recv(buffer, 1, MPI_INT, destination, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
 }
 
